@@ -14,11 +14,13 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import * as esbuild from 'esbuild';
 import { inject } from 'postject';
+import { buildTray } from './build-tray.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const dist = path.join(root, 'dist');
 const release = path.join(dist, 'release');
-const exeName = 'MDSyncView.exe';
+/** The Node single-executable server; the user-facing MDSyncView.exe is the tray host that launches it. */
+const exeName = 'MDSyncView-server.exe';
 const skipClient = process.argv.includes('--skip-client');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 
@@ -84,21 +86,32 @@ if (signtool) {
 console.log(`\n$ postject ${exeName} NODE_SEA_BLOB dist/sea-prep.blob`);
 await inject(exePath, 'NODE_SEA_BLOB', fs.readFileSync(path.join(dist, 'sea-prep.blob')), { sentinelFuse: 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2' });
 
-// 5. release layout
+// 5. tray host (the exe users double-click: no console window, notification-area icon, launches the server)
+if (process.platform === 'win32') {
+  console.log('\n$ csc tray/Program.cs → dist/release/MDSyncView.exe');
+  buildTray(release);
+}
+
+// 6. release layout
 fs.cpSync(path.join(dist, 'client'), path.join(release, 'client'), { recursive: true });
 fs.writeFileSync(path.join(release, 'README.txt'), [
   `MDSyncView ${pkg.version} (Windows x64, Node ${process.version})`,
   '',
-  '双击 MDSyncView.exe 启动；服务只监听 127.0.0.1，并自动以 Edge/Chrome 应用窗口打开界面。',
-  '首次启动会在后台扫描所有本地固定磁盘上的 Markdown 文件；数据保存在 %LOCALAPPDATA%\\MDSyncView。',
+  '双击 MDSyncView.exe 启动：程序常驻系统托盘（右下角通知区域），无控制台窗口，',
+  '并自动以 Edge/Chrome 应用窗口打开界面。托盘菜单可打开界面、重新扫描、查看日志、退出。',
+  '若托盘图标未显示在任务栏，请在托盘溢出区（^）中查看，可拖到任务栏固定。',
   '',
-  '可选参数：MDSyncView.exe [--no-open] [--port=4820] [--data=<数据目录>] [--root=<目录>]...',
-  'client\\ 目录必须与 MDSyncView.exe 放在一起。',
+  'MDSyncView-server.exe 是后台服务（由托盘程序启动），只监听 127.0.0.1；',
+  '首次启动会在后台扫描所有本地固定磁盘上的 Markdown 文件；数据与日志保存在 %LOCALAPPDATA%\\MDSyncView。',
+  '',
+  '可选参数（对两个程序均有效）：[--port=4820] [--data=<数据目录>] [--root=<目录>]...',
+  '也可直接运行 MDSyncView-server.exe（带控制台，支持 --no-open）。',
+  'client\\ 目录必须与两个 exe 放在一起。',
   '',
   'https://github.com/Anna-SAP/MDSyncView',
 ].join('\r\n'));
 
-// 6. zip (PowerShell is always available on Windows runners and workstations)
+// 7. zip (PowerShell is always available on Windows runners and workstations)
 const zipPath = path.join(dist, 'MDSyncView-win-x64.zip');
 fs.rmSync(zipPath, { force: true });
 if (process.platform === 'win32') {
@@ -107,5 +120,6 @@ if (process.platform === 'win32') {
     { env: { ...process.env, MDSV_RELEASE: release, MDSV_ZIP: zipPath } });
 }
 
-const size = (p) => (fs.statSync(p).size / 1048576).toFixed(1) + ' MB';
-console.log(`\nbuilt ${exePath} (${size(exePath)})${fs.existsSync(zipPath) ? `, ${path.basename(zipPath)} (${size(zipPath)})` : ''} in ${Math.round((Date.now() - t0) / 1000)}s`);
+const size = (p) => { const b = fs.statSync(p).size; return b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB'; };
+const trayExe = path.join(release, 'MDSyncView.exe');
+console.log(`\nbuilt ${exePath} (${size(exePath)})${fs.existsSync(trayExe) ? `, MDSyncView.exe tray host (${size(trayExe)})` : ''}${fs.existsSync(zipPath) ? `, ${path.basename(zipPath)} (${size(zipPath)})` : ''} in ${Math.round((Date.now() - t0) / 1000)}s`);

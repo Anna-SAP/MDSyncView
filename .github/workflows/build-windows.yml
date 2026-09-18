@@ -43,10 +43,11 @@ jobs:
       - name: Build release executable
         run: npm run build:exe
 
-      - name: Smoke-test the executable
+      - name: Smoke-test the executables
         shell: pwsh
         run: |
-          $exe = Join-Path $PWD 'dist\release\MDSyncView.exe'
+          if (-not (Test-Path 'dist\release\MDSyncView.exe')) { throw 'tray host MDSyncView.exe was not built' }
+          $exe = Join-Path $PWD 'dist\release\MDSyncView-server.exe'
           $data = Join-Path $env:RUNNER_TEMP 'mdsv-smoke-data'
           $docs = Join-Path $PWD 'docs'
           $p = Start-Process -FilePath $exe -ArgumentList @('--no-open', '--port=4897', "--data=$data", "--root=$docs") -PassThru -RedirectStandardOutput smoke.log -RedirectStandardError smoke.err
@@ -68,7 +69,31 @@ jobs:
           Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
           Get-Content smoke.log -ErrorAction SilentlyContinue | Select-Object -Last 20
           Get-Content smoke.err -ErrorAction SilentlyContinue | Select-Object -Last 20
-          if (-not $ok) { throw 'MDSyncView.exe did not start or did not index the sample documents' }
+          if (-not $ok) { throw 'MDSyncView-server.exe did not start or did not index the sample documents' }
+
+      - name: Smoke-test the tray host
+        shell: pwsh
+        run: |
+          # headless: --tray-no-ui keeps it from opening a browser window; it must start the server and answer on 4898
+          $tray = Join-Path $PWD 'dist\release\MDSyncView.exe'
+          $data = Join-Path $env:RUNNER_TEMP 'mdsv-tray-data'
+          $p = Start-Process -FilePath $tray -ArgumentList @('--tray-no-ui', '--port=4898', "--data=$data", "--root=$PWD\docs") -PassThru
+          $ok = $false
+          foreach ($i in 1..40) {
+            Start-Sleep -Milliseconds 500
+            try { if ((Invoke-RestMethod -Uri 'http://127.0.0.1:4898/api/health' -TimeoutSec 2).ok) { $ok = $true; break } } catch {}
+          }
+          if ($ok) {
+            # graceful shutdown through the API: the server exits cleanly and the tray host follows
+            Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:4898/api/shutdown' -Headers @{ 'X-MDSV' = '1' } -ContentType 'application/json' -Body '{}' | Out-Null
+            $gone = $p.WaitForExit(10000)
+            Write-Host "tray host exited after shutdown: $gone"
+            if (-not $gone) { Stop-Process -Id $p.Id -Force; $ok = $false }
+          } else {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          }
+          Get-Content (Join-Path $data 'server.log') -ErrorAction SilentlyContinue | Select-Object -Last 15
+          if (-not $ok) { throw 'tray host did not bring the server up or did not exit after shutdown' }
 
       - name: Read version
         id: meta
