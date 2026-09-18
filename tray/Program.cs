@@ -54,7 +54,8 @@ namespace MDSyncView
         readonly List<string> serverArgs = new List<string>();
         readonly string dataDir;
         readonly string logPath;
-        readonly int port;
+        /** Requested port; replaced by the effective one once the server logs "listening on" (it moves on when busy). */
+        int port;
         string serverExe;
         string serverWorkDir;
         Process server;
@@ -170,8 +171,8 @@ namespace MDSyncView
                 server = new Process();
                 server.StartInfo = psi;
                 server.EnableRaisingEvents = true;
-                server.OutputDataReceived += delegate(object s, DataReceivedEventArgs e) { WriteLog(e.Data); };
-                server.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e) { WriteLog(e.Data); };
+                server.OutputDataReceived += delegate(object s, DataReceivedEventArgs e) { WriteLog(e.Data); NoteListening(e.Data); };
+                server.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e) { WriteLog(e.Data); NoteListening(e.Data); };
                 server.Exited += delegate { OnServerExited(); };
                 server.Start();
                 server.BeginOutputReadLine();
@@ -271,6 +272,23 @@ namespace MDSyncView
                 if (restarts == 0)
                     Balloon("MDSyncView 正在后台运行", "双击托盘图标打开界面。若图标未显示在任务栏，请在托盘溢出区（^）中查看，可拖到任务栏固定。", ToolTipIcon.Info);
                 if (!noAutoUi) OpenUi();
+            }
+        }
+
+        /** Picks the effective port out of the server's "listening on http://127.0.0.1:NNNN/" line. */
+        void NoteListening(string line)
+        {
+            if (line == null) return;
+            int i = line.IndexOf("listening on http://127.0.0.1:", StringComparison.Ordinal);
+            if (i < 0) return;
+            string rest = line.Substring(i + "listening on http://127.0.0.1:".Length);
+            int end = rest.IndexOf('/');
+            int p;
+            if (end > 0 && int.TryParse(rest.Substring(0, end), out p) && p > 0 && p != port)
+            {
+                port = p;
+                try { icon.Text = "MDSyncView · 127.0.0.1:" + port; } catch { }
+                WriteLog("[tray] server is on port " + port);
             }
         }
 

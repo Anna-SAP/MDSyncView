@@ -15,8 +15,11 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import WebSocket from 'ws';
 import type { FileEvent, ServerMessage, Snapshot, SearchResponse, FileDetail, RootInfo } from '../../shared/types.ts';
 
-const PORT = 4890;
-const BASE = `http://127.0.0.1:${PORT}`;
+// The server falls back to the next port when the configured one is taken (CI runners have other
+// services), so the effective port is parsed from its "listening on" log line.
+const CONFIGURED_PORT = 4890;
+let PORT = CONFIGURED_PORT;
+let BASE = `http://127.0.0.1:${PORT}`;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mdsv-test-'));
 const root = path.join(tmp, 'root');
 const dataDir = path.join(tmp, 'data');
@@ -59,7 +62,7 @@ before(async () => {
   fs.writeFileSync(path.join(root, 'notes', 'UPPER.MD'), '---\ntitle: Upper Case Ext\ntags: [alpha, beta]\n---\n\n# Ignored H1\n\nuppercase extension body\n');
   fs.writeFileSync(path.join(root, 'node_modules', 'pkg', 'README.md'), '# should be excluded\n');
   fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ port: PORT, roots: [root], openBrowser: false, reconcileIntervalMin: 0 }));
+  fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ port: CONFIGURED_PORT, roots: [root], openBrowser: false, reconcileIntervalMin: 0 }));
 
   server = spawn(process.execPath, ['--no-warnings', path.resolve(import.meta.dirname, '../src/index.ts'), '--no-open'], {
     env: { ...process.env, MDSYNCVIEW_DATA: dataDir, MDSYNCVIEW_HEALTH_MS: '1500' },
@@ -68,9 +71,18 @@ before(async () => {
   server.stdout!.on('data', (d) => serverLog.push(...String(d).trimEnd().split('\n')));
   server.stderr!.on('data', (d) => serverLog.push(...String(d).trimEnd().split('\n')));
 
-  await waitFor(() => serverLog.some((l) => l.includes('listening on')), 15000, 'server listening');
-  await openMainSocket();
-  await waitFor(() => serverLog.some((l) => l.includes('startup reconcile:')), 15000, 'startup reconcile');
+  try {
+    const listenLine = await waitFor(() => serverLog.find((l) => /listening on http:\/\/127\.0\.0\.1:\d+\//.test(l)), 15000, 'server listening');
+    PORT = Number(/127\.0\.0\.1:(\d+)\//.exec(listenLine)![1]);
+    BASE = `http://127.0.0.1:${PORT}`;
+    if (PORT !== CONFIGURED_PORT) console.error(`[test] port ${CONFIGURED_PORT} was busy; server is on ${PORT}`);
+    await openMainSocket();
+    await waitFor(() => serverLog.some((l) => l.includes('startup reconcile:')), 15000, 'startup reconcile');
+  } catch (e) {
+    // make CI failures diagnosable: show what the server printed before the harness gave up
+    console.error(`[test] server did not come up (exit code ${server.exitCode}); log:\n${serverLog.join('\n')}`);
+    throw e;
+  }
 });
 
 /** (Re)connect the shared socket that feeds `inbox`; safe to call after a test closed it. */
