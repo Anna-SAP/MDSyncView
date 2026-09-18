@@ -1,0 +1,7 @@
+node_modules/
+dist/
+data/
+*.log
+.DS_Store
+# machine-specific Claude Code launch config (scratch data dir paths)
+.claude/
