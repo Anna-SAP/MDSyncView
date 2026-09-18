@@ -52,17 +52,24 @@ jobs:
           $docs = Join-Path $PWD 'docs'
           $p = Start-Process -FilePath $exe -ArgumentList @('--no-open', '--port=4897', "--data=$data", "--root=$docs") -PassThru -RedirectStandardOutput smoke.log -RedirectStandardError smoke.err
           $ok = $false
+          $port = 0
           foreach ($i in 1..40) {
             Start-Sleep -Milliseconds 500
+            # the server moves to the next port when 4897 is taken on the runner: read the effective one from its log
+            if ($port -eq 0) {
+              $m = (Get-Content smoke.log -ErrorAction SilentlyContinue | Select-String -Pattern 'listening on http://127\.0\.0\.1:(\d+)/' | Select-Object -First 1)
+              if ($m) { $port = [int]$m.Matches[0].Groups[1].Value; Write-Host "server listening on port $port" }
+            }
+            if ($port -eq 0) { continue }
             try {
-              $h = Invoke-RestMethod -Uri 'http://127.0.0.1:4897/api/health' -TimeoutSec 2
+              $h = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/health" -TimeoutSec 2
               if ($h.ok) { $ok = $true; break }
             } catch {}
           }
           if ($ok) {
             # wait for the startup scan of docs/ and check the index picked the sample documents up
             Start-Sleep -Seconds 3
-            $s = Invoke-RestMethod -Uri 'http://127.0.0.1:4897/api/stats' -TimeoutSec 5
+            $s = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/stats" -TimeoutSec 5
             Write-Host "health ok, indexed files: $($s.files), version: $($s.version)"
             if ($s.files -lt 1) { $ok = $false }
           }
@@ -79,13 +86,20 @@ jobs:
           $data = Join-Path $env:RUNNER_TEMP 'mdsv-tray-data'
           $p = Start-Process -FilePath $tray -ArgumentList @('--tray-no-ui', '--port=4898', "--data=$data", "--root=$PWD\docs") -PassThru
           $ok = $false
+          $port = 0
+          $log = Join-Path $data 'server.log'
           foreach ($i in 1..40) {
             Start-Sleep -Milliseconds 500
-            try { if ((Invoke-RestMethod -Uri 'http://127.0.0.1:4898/api/health' -TimeoutSec 2).ok) { $ok = $true; break } } catch {}
+            if ($port -eq 0) {
+              $m = (Get-Content $log -ErrorAction SilentlyContinue | Select-String -Pattern 'listening on http://127\.0\.0\.1:(\d+)/' | Select-Object -First 1)
+              if ($m) { $port = [int]$m.Matches[0].Groups[1].Value; Write-Host "server listening on port $port" }
+            }
+            if ($port -eq 0) { continue }
+            try { if ((Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/health" -TimeoutSec 2).ok) { $ok = $true; break } } catch {}
           }
           if ($ok) {
             # graceful shutdown through the API: the server exits cleanly and the tray host follows
-            Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:4898/api/shutdown' -Headers @{ 'X-MDSV' = '1' } -ContentType 'application/json' -Body '{}' | Out-Null
+            Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/api/shutdown" -Headers @{ 'X-MDSV' = '1' } -ContentType 'application/json' -Body '{}' | Out-Null
             $gone = $p.WaitForExit(10000)
             Write-Host "tray host exited after shutdown: $gone"
             if (-not $gone) { Stop-Process -Id $p.Id -Force; $ok = $false }
