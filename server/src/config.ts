@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
-import { DEFAULT_EXCLUDE_NAMES, IS_WIN, toDisplay } from './paths.ts';
+import { DEFAULT_EXCLUDE_NAMES, IS_WIN, toDisplay, toLongPath } from './paths.ts';
 
 export interface AppConfig {
   host: string;
@@ -50,9 +50,9 @@ export class ConfigStore {
   private overrides: Partial<AppConfig> = {};
 
   constructor(dataDir = resolveDataDir()) {
-    this.dataDir = dataDir;
-    this.file = path.join(dataDir, 'config.json');
     fs.mkdirSync(dataDir, { recursive: true });
+    this.dataDir = toLongPath(dataDir); // %TEMP%/%LOCALAPPDATA% may be handed to us as 8.3 short names
+    this.file = path.join(this.dataDir, 'config.json');
     this.saved = this.load();
   }
 

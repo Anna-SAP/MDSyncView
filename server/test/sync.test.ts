@@ -20,7 +20,9 @@ import type { FileEvent, ServerMessage, Snapshot, SearchResponse, FileDetail, Ro
 const CONFIGURED_PORT = 4890;
 let PORT = CONFIGURED_PORT;
 let BASE = `http://127.0.0.1:${PORT}`;
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mdsv-test-'));
+// long-name form: on CI runners %TEMP% is an 8.3 short path (C:\Users\RUNNER~1\...), which the server
+// must handle, but the harness compares keys against what the server reports, so start from the long form
+const tmp = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'mdsv-test-')));
 const root = path.join(tmp, 'root');
 const dataDir = path.join(tmp, 'data');
 let server: ChildProcess;

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { toKey, type ExcludeMatcher } from './paths.ts';
+import { toKey, toLongPath, type ExcludeMatcher } from './paths.ts';
 import { listSubdirs } from './scanner.ts';
 import { log } from './log.ts';
 
@@ -121,7 +121,8 @@ export class WatchManager {
     for (const c of wanted) await this.addUnitOrHub(c.path, root);
   }
 
-  private watchUnit(p: string, root: string, recursive: boolean): void {
+  private watchUnit(pIn: string, root: string, recursive: boolean): void {
+    const p = toLongPath(pIn); // never hand libuv an 8.3 short name (assertion abort on Windows)
     const key = toKey(p);
     const existing = this.units.get(key);
     if (existing) {

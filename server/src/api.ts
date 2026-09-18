@@ -132,7 +132,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   app.get('/api/stats', async () => ctx.stats());
 
   app.get('/api/snapshot', async (): Promise<Snapshot> => {
-    ctx.hub.flushEvents();
+    ctx.hub.flushAll();
     return { seq: ctx.hub.seq, serverId: ctx.hub.serverId, files: ctx.db.all(), roots: ctx.roots(), stats: ctx.stats() };
   });
 

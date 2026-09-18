@@ -9,6 +9,11 @@ type Outgoing = DistributiveOmit<Extract<ServerMessage, { type: 'events' | 'scan
 
 const RING_MAX = 5000;
 const EVENT_CHUNK = 400;
+/**
+ * A remove is held back briefly so that the rename it may be half of (the "new path" side is often
+ * discovered a little later, in another dirty batch) can cancel it. Clients never see remove+add for a rename.
+ */
+const REMOVE_HOLD_MS = 400;
 
 /**
  * WebSocket fan-out with monotonically increasing sequence numbers and a replay ring so clients that
@@ -21,6 +26,7 @@ export class EventHub {
   private ring: ServerMessage[] = [];
   private clients = new Set<WebSocket>();
   private pending: FileEvent[] = [];
+  private heldRemoves: { ev: FileEvent; at: number }[] = [];
   private flushTimer: NodeJS.Timeout | null = null;
   private wss: WebSocketServer | null = null;
 
@@ -86,26 +92,46 @@ export class EventHub {
     try { ws.send(JSON.stringify(m)); } catch { /* ignore */ }
   }
 
-  /** Queue file events; they are coalesced into one message per ~80ms. */
+  /** Queue file events; they are coalesced into one message per ~80ms (removes are held a bit longer). */
   emitFileEvents(events: FileEvent[]): void {
     if (!events.length) return;
-    this.pending.push(...events);
-    this.lastEventAt = Date.now();
-    if (!this.flushTimer) this.flushTimer = setTimeout(() => this.flushEvents(), 80);
+    const now = Date.now();
+    for (const e of events) {
+      if (e.op === 'remove') this.heldRemoves.push({ ev: e, at: now });
+      else this.pending.push(e);
+    }
+    this.lastEventAt = now;
+    this.schedule(80);
+  }
+
+  private schedule(ms: number): void {
+    if (this.flushTimer) return;
+    this.flushTimer = setTimeout(() => this.flushEvents(), ms);
   }
 
   flushEvents(): void {
     if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = null; }
-    if (!this.pending.length) return;
-    // A rename detected after its "remove" half was already queued supersedes that remove.
-    const raw = this.pending;
-    this.pending = [];
+    const now = Date.now();
+    // A rename supersedes the remove of its old path, whether that remove is still held or arrived together.
     const renamedFrom = new Set<string>();
-    for (const e of raw) if (e.op === 'rename' && e.oldKey) renamedFrom.add(e.oldKey);
-    const events = renamedFrom.size ? raw.filter((e) => !(e.op === 'remove' && renamedFrom.has(e.key))) : raw;
+    for (const e of this.pending) if (e.op === 'rename' && e.oldKey) renamedFrom.add(e.oldKey);
+    if (renamedFrom.size) this.heldRemoves = this.heldRemoves.filter((h) => !renamedFrom.has(h.ev.key));
+    const due: FileEvent[] = [];
+    const stillHeld: { ev: FileEvent; at: number }[] = [];
+    for (const h of this.heldRemoves) { if (now - h.at >= REMOVE_HOLD_MS) due.push(h.ev); else stillHeld.push(h); }
+    this.heldRemoves = stillHeld;
+    const events = [...due, ...this.pending];
+    this.pending = [];
     for (let i = 0; i < events.length; i += EVENT_CHUNK) {
       this.broadcast({ type: 'events', events: events.slice(i, i + EVENT_CHUNK) });
     }
+    if (stillHeld.length) this.schedule(Math.max(10, REMOVE_HOLD_MS - (now - stillHeld[0]!.at) + 5));
+  }
+
+  /** Everything queued, including held removes, goes out now (shutdown / snapshot consistency). */
+  flushAll(): void {
+    for (const h of this.heldRemoves) h.at = 0;
+    this.flushEvents();
   }
 
   broadcast(msg: Outgoing): void {
@@ -122,6 +148,7 @@ export class EventHub {
   }
 
   close(): void {
+    this.flushAll();
     if (this.flushTimer) clearTimeout(this.flushTimer);
     for (const c of this.clients) { try { c.close(1001, 'server shutting down'); } catch { /* ignore */ } }
     this.clients.clear();
