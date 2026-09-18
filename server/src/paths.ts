@@ -1,4 +1,15 @@
+import fs from 'node:fs';
 import path from 'node:path';
+
+/**
+ * Canonical long form of an existing directory path. On Windows this expands 8.3 short names
+ * (C:\Users\RUNNER~1) to their long form: libuv's recursive watcher asserts (and aborts the process)
+ * when the watched path is a short name because change notifications carry long names.
+ */
+export function toLongPath(p: string): string {
+  if (process.platform !== 'win32') return p;
+  try { return fs.realpathSync.native(p); } catch { return p; }
+}
 
 /** Extensions treated as Markdown (compared case-insensitively). */
 export const MD_EXTS: ReadonlySet<string> = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mdx']);

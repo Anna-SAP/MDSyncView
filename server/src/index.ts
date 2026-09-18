@@ -12,7 +12,7 @@ import { DirtySet } from './dirty.ts';
 import { EventHub } from './hub.ts';
 import { Indexer } from './indexer.ts';
 import { openWithDefaultApp } from './open.ts';
-import { makeExcludeMatcher, toDisplay, toKey } from './paths.ts';
+import { makeExcludeMatcher, toDisplay, toKey, toLongPath } from './paths.ts';
 import { WatchManager } from './watcher.ts';
 import { log } from './log.ts';
 
@@ -214,14 +214,17 @@ const dirty = new DirtySet(async (batch) => {
       if (!missing.length) break;
     }
   }
-  // Vanished paths first so add/remove pairs inside one batch resolve into renames.
+  // Vanished paths first so add/remove pairs inside one batch resolve into renames; the whole batch is
+  // handed to the hub at once so its remove/rename pairing sees both halves together.
+  const collected: FileEvent[] = [];
   for (const b of [...missing, ...present]) {
     try {
-      await indexer.verifyPath(b.path, b.root, emit, undefined, { noGrace: true });
+      await indexer.verifyPath(b.path, b.root, (evs) => collected.push(...evs), undefined, { noGrace: true });
     } catch (e) {
       log.warn('sync', `verify failed for ${b.path}`, e);
     }
   }
+  if (collected.length) emit(collected);
 }, 150, 600);
 
 const watch = new WatchManager(() => excludeMatcher, {
@@ -235,7 +238,8 @@ const watch = new WatchManager(() => excludeMatcher, {
 
 // --- roots management ---------------------------------------------------------------------------------
 async function computeEffectiveRoots(): Promise<string[]> {
-  const configured = cfg().roots.map((r) => toDisplay(r));
+  // long-name canonical form: short (8.3) root paths would crash libuv's watcher
+  const configured = cfg().roots.map((r) => toDisplay(toLongPath(r)));
   if (configured.length) return configured;
   return (await listDrives()).map((d) => toDisplay(d));
 }
