@@ -85,7 +85,8 @@ code { font-family: var(--font-mono); }
   height: 100vh; width: 100vw;
 }
 .sidebar { grid-column: 1; grid-row: 1; display: grid; grid-template-columns: 44px minmax(0, 1fr); background: var(--bg-2); border-right: 1px solid var(--border); overflow: hidden; min-width: 0; }
-.sidebar.collapsed { display: none; }
+/* collapsed: only the icon rail remains (44px), which is also the way to expand again */
+.sidebar.collapsed { grid-template-columns: 44px; }
 .resizer { grid-column: 2; grid-row: 1; cursor: col-resize; background: transparent; }
 .resizer:hover { background: var(--accent); opacity: 0.4; }
 .resizer.hidden { pointer-events: none; }

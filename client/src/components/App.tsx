@@ -76,7 +76,7 @@ export function App() {
   }, [doc?.detail?.file.title]);
 
   return (
-    <div className="app" style={{ ['--sidebar-w' as string]: sidebarOpen ? `${sidebarW}px` : '0px', ['--rail-w' as string]: railOpen && doc ? '260px' : '0px' }}>
+    <div className="app" style={{ ['--sidebar-w' as string]: sidebarOpen ? `${sidebarW}px` : '44px', ['--rail-w' as string]: railOpen && doc ? '260px' : '0px' }}>
       <Sidebar />
       <div className={`resizer ${sidebarOpen ? '' : 'hidden'}`} onMouseDown={onDragStart} />
       <main className="main">
