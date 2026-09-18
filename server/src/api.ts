@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
+import { openInEditor, openWithDefaultApp, revealInFileManager } from './open.ts';
 import fastifyStatic from '@fastify/static';
 import type { BrowseResponse, ConfigView, FileDetail, RootInfo, SearchResponse, Snapshot, Stats, TagCount } from '../../shared/types.ts';
 import type { Index } from './db.ts';
@@ -255,12 +255,9 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
     if (!rec) throw new HttpError(404, 'NOT_FOUND', 'only indexed files can be opened');
     const mode = body.mode === 'reveal' || body.mode === 'editor' ? body.mode : 'default';
     try {
-      if (mode === 'reveal') {
-        spawn('explorer.exe', ['/select,' + rec.path], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-      } else {
-        const open = (await import('open')).default;
-        await open(rec.path, mode === 'editor' ? { app: { name: 'code' } } : undefined);
-      }
+      if (mode === 'reveal') revealInFileManager(rec.path);
+      else if (mode === 'editor') openInEditor(rec.path);
+      else openWithDefaultApp(rec.path);
     } catch (e) {
       throw new HttpError(500, 'OPEN_FAILED', (e as Error).message);
     }

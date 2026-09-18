@@ -30,6 +30,18 @@ node server/src/index.ts [--no-open] [--port=4820] [--data=<数据目录>] [--ro
 
 `--root` 可重复，用于限定扫描范围；不指定时扫描所有固定磁盘。也可在界面「设置」中修改根目录、排除规则与定期核对间隔。
 
+### 独立 EXE（无需安装 Node）
+
+每次推送到 `main`/`master`，GitHub Actions（`.github/workflows/build-windows.yml`）会在 Windows 上运行类型检查与端到端测试，然后用 Node 官方的单文件可执行方案（SEA）把服务端打包进 `MDSyncView.exe`，连同前端资源压缩为 `MDSyncView-win-x64.zip`，上传为构建产物并发布到 GitHub Releases（标签形如 `v0.1.0-build.12`）。解压后双击 `MDSyncView.exe` 即可，`client` 目录需与 EXE 放在一起。
+
+本地生成同样的产物：
+
+```bash
+npm run build:exe
+```
+
+产物位于 `dist/release/`（约 90 MB，内含 Node 运行时）与 `dist/MDSyncView-win-x64.zip`。
+
 开发模式（服务端热重载 + Vite HMR，前端在 http://127.0.0.1:5173）：
 
 ```bash
