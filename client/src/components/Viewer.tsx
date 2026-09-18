@@ -131,7 +131,7 @@ function EmptyState() {
         <div className="empty-logo">M</div>
         <h2>MDSyncView</h2>
         <p>本机已索引 <strong>{fmtNumber(stats?.files ?? 0)}</strong> 个 Markdown 文件，并实时监听变更。</p>
-        <p>按 <kbd>{modKey}</kbd> + <kbd>P</kbd> 快速打开文件，<kbd>{modKey}</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd> 全文搜索。</p>
+        <p>按 <kbd>{modKey}</kbd> + <kbd>P</kbd> 快速打开文件，<kbd>{modKey}</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd> 全文搜索，<kbd>{modKey}</kbd> + <kbd>B</kbd> 显示或隐藏侧栏。</p>
         <button className="btn primary" onClick={() => setPalette(true)}>打开文件…</button>
       </div>
     </section>
