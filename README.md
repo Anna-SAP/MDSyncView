@@ -10,7 +10,9 @@
 
 ## 运行
 
-要求：Windows 10/11，Node.js ≥ 24（服务端直接运行 TypeScript，无需编译步骤）。
+**普通用户**：不需要安装任何东西，从 [Releases](https://github.com/Anna-SAP/MDSyncView/releases/latest) 下载 `MDSyncView-win-x64.zip`，解压后双击 `MDSyncView.exe`。图文步骤见 [快速上手指南](docs/QUICKSTART.md)。
+
+**从源码运行**：要求 Windows 10/11，Node.js ≥ 24（服务端直接运行 TypeScript，无需编译步骤）。
 
 ```bash
 npm install

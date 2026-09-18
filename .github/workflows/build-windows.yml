@@ -132,6 +132,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = '${{ steps.meta.outputs.tag }}'
-          $notes = "Automated Windows release build of MDSyncView ${{ steps.meta.outputs.version }} from commit ${{ github.sha }}.`n`n" +
-                   "Unzip and run MDSyncView.exe (keep the client folder next to it). The server listens on 127.0.0.1 only."
+          $notes = "MDSyncView ${{ steps.meta.outputs.version }} 的自动构建（提交 ${{ github.sha }}）。`n`n" +
+                   "下载 MDSyncView-win-x64.zip，解压后双击 MDSyncView.exe 即可；程序常驻系统托盘，只在本机运行。`n" +
+                   "第一次使用请看 [快速上手指南](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/docs/QUICKSTART.md)。`n`n" +
+                   "Automated Windows build. Unzip, double-click MDSyncView.exe (keep the client folder next to it); it stays in the notification area and listens on 127.0.0.1 only."
           gh release create $tag dist/MDSyncView-win-x64.zip --title "MDSyncView ${{ steps.meta.outputs.version }} (build ${{ github.run_number }})" --notes $notes --target ${{ github.sha }}

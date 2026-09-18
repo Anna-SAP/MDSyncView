@@ -108,7 +108,8 @@ fs.writeFileSync(path.join(release, 'README.txt'), [
   '也可直接运行 MDSyncView-server.exe（带控制台，支持 --no-open）。',
   'client\\ 目录必须与两个 exe 放在一起。',
   '',
-  'https://github.com/Anna-SAP/MDSyncView',
+  '快速上手指南：https://github.com/Anna-SAP/MDSyncView/blob/main/docs/QUICKSTART.md',
+  '项目主页：https://github.com/Anna-SAP/MDSyncView',
 ].join('\r\n'));
 
 // 7. zip (PowerShell is always available on Windows runners and workstations)
