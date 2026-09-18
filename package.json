@@ -14,13 +14,13 @@
     "build": "vite build --config client/vite.config.ts",
     "start": "node --no-warnings=ExperimentalWarning server/src/index.ts",
     "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit",
-    "test": "node --no-warnings=ExperimentalWarning --test server/test/*.test.ts"
+    "test": "node --no-warnings=ExperimentalWarning --test server/test/*.test.ts",
+    "build:exe": "node scripts/build-exe.mjs"
   },
   "dependencies": {
     "@fastify/static": "^10.1.3",
     "fastify": "^5.12.4",
     "gray-matter": "^4.0.3",
-    "open": "^11.0.3",
     "ws": "^8.21.3"
   },
   "devDependencies": {
@@ -36,6 +36,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "concurrently": "^9",
     "dompurify": "^3.4.15",
+    "esbuild": "^0.28.2",
     "fuzzysort": "^4.0.2",
     "highlight.js": "^11.12.0",
     "js-yaml": "^5.4.1",
@@ -53,6 +54,7 @@
     "markdown-it-task-lists": "^2.1.1",
     "mermaid": "^12.0.0",
     "morphdom": "^2.7.8",
+    "postject": "^1.0.0-alpha.6",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^5.9",

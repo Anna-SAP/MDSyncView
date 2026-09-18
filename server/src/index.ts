@@ -2,19 +2,37 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { isSea } from 'node:sea';
+import type { FastifyInstance } from 'fastify';
 import type { ConfigView, FileEvent, RootInfo, ScanProgress, Stats } from '../../shared/types.ts';
 import { buildServer } from './api.ts';
-import { ConfigStore, listFixedDrives } from './config.ts';
+import { ConfigStore, listFixedDrives, type AppConfig } from './config.ts';
 import { Index } from './db.ts';
 import { DirtySet } from './dirty.ts';
 import { EventHub } from './hub.ts';
 import { Indexer } from './indexer.ts';
+import { openWithDefaultApp } from './open.ts';
 import { makeExcludeMatcher, toDisplay, toKey } from './paths.ts';
 import { WatchManager } from './watcher.ts';
 import { log } from './log.ts';
 
 const VERSION = '0.1.0';
-const argv = process.argv.slice(2);
+/** True when running as the single-executable build (MDSyncView.exe). */
+const IS_SEA = isSea();
+
+if (IS_SEA) {
+  // The executable cannot receive Node CLI flags, so filter the noise the same way --no-warnings would.
+  process.removeAllListeners('warning');
+  process.on('warning', (w) => { if (w.name !== 'ExperimentalWarning') console.warn(w.stack ?? w.message); });
+}
+
+/** User arguments without the interpreter/script prefix (differs between `node index.ts …` and the .exe). */
+function userArgs(): string[] {
+  const a = process.argv.slice(1);
+  while (a.length && (a[0] === process.execPath || /\.(ts|js|cjs|mjs|exe)$/i.test(a[0]!))) a.shift();
+  return a;
+}
+const argv = userArgs();
 const args = new Set(argv);
 const DEV = args.has('--dev');
 const NO_OPEN = args.has('--no-open');
@@ -35,7 +53,7 @@ if (dataOverride) process.env.MDSYNCVIEW_DATA = dataOverride;
 const store = new ConfigStore();
 {
   // session-only overrides: never written back to config.json
-  const overrides: Partial<import('./config.ts').AppConfig> = {};
+  const overrides: Partial<AppConfig> = {};
   const p = Number(argValues('port')[0]);
   if (Number.isInteger(p) && p > 0) overrides.port = p;
   const r = argValues('root');
@@ -45,9 +63,12 @@ const store = new ConfigStore();
 const cfg = () => store.config;
 const dataDir = store.dataDir;
 const dbPath = path.join(dataDir, 'index.db');
-const clientDir = path.resolve(import.meta.dirname, '../../dist/client');
+/** Built client: next to the executable in the release layout, under dist/ when run from source. */
+const clientDir = IS_SEA
+  ? path.join(path.dirname(process.execPath), 'client')
+  : path.resolve(import.meta.dirname, '../../dist/client');
 
-log.info('main', `MDSyncView ${VERSION} starting (node ${process.version}, ${DEV ? 'dev' : 'prod'})`);
+log.info('main', `MDSyncView ${VERSION} starting (node ${process.version}, ${DEV ? 'dev' : IS_SEA ? 'exe' : 'prod'})`);
 log.info('main', `data dir: ${dataDir}`);
 
 const db = new Index(dbPath);
@@ -268,96 +289,6 @@ function schedulePeriodic(): void {
   }, min * 60_000);
 }
 
-// --- HTTP server ----------------------------------------------------------------------------------------
-const app = await buildServer({
-  db,
-  indexer,
-  hub,
-  dev: DEV,
-  clientDir,
-  dataDir,
-  maxContentBytes: () => cfg().maxContentBytes,
-  stats,
-  roots,
-  configView,
-  updateConfig: async (patch) => {
-    const rootsChanged = patch.roots !== undefined;
-    const excludesChanged = patch.excludeNames !== undefined || patch.excludePaths !== undefined;
-    store.update(patch);
-    if (excludesChanged) rebuildExclude();
-    if (rootsChanged || excludesChanged) {
-      if (excludesChanged) {
-        // exclusions affect the watch topology and which files count: re-plan and rescan everything
-        await watch.setRoots([]);
-        effectiveRoots = [];
-      }
-      await applyRoots(excludesChanged);
-    }
-    if (patch.reconcileIntervalMin !== undefined) schedulePeriodic();
-    return configView();
-  },
-  rescan: async (root) => {
-    const targets = root ? effectiveRoots.filter((r) => toKey(r) === toKey(root)) : effectiveRoots;
-    await Promise.all(targets.map((r) => reconcilePath(r, r, 'manual rescan')));
-  },
-  listDrives,
-  isHostAllowed: (host) => !!host && allowedHosts().has(host.toLowerCase()),
-  isOriginAllowed: (origin) => origin !== undefined && allowedOrigins().has(origin),
-  cspHeader: () => [
-    "default-src 'self'",
-    "script-src 'self'",
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
-    "media-src 'self' blob:",
-    "font-src 'self' data:",
-    `connect-src 'self' ws://127.0.0.1:${port} ws://localhost:${port}`,
-    "worker-src 'self' blob:",
-    "frame-src 'self'",
-    "object-src 'none'",
-    "base-uri 'none'",
-    "form-action 'none'",
-    "frame-ancestors 'none'",
-  ].join('; '),
-});
-
-async function listen(): Promise<void> {
-  const basePort = cfg().port;
-  for (let i = 0; i < 12; i++) {
-    port = basePort + i;
-    try {
-      await app.listen({ port, host: cfg().host });
-      return;
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
-      // Is it another MDSyncView? Then just open it and exit.
-      try {
-        const res = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(800) });
-        if (res.ok) {
-          const j = (await res.json()) as { serverId?: string };
-          if (j.serverId) {
-            log.info('main', `MDSyncView already running on port ${port}; opening it`);
-            if (!NO_OPEN) openBrowser(`http://127.0.0.1:${port}/`);
-            process.exit(0);
-          }
-        }
-      } catch { /* not ours */ }
-      log.warn('main', `port ${port} busy, trying next`);
-    }
-  }
-  throw new Error('no free port found');
-}
-
-await listen();
-hub.attach(app.server);
-const url = `http://127.0.0.1:${port}/`;
-log.info('main', `listening on ${url}`);
-void listDrives(); // warm the drive list (PowerShell spawn) so the settings dialog opens instantly
-
-// Attach watchers first so nothing is missed while the startup reconcile runs.
-await applyRoots(true);
-schedulePeriodic();
-void watcherSelfTest();
-
 /** Prove that native recursive fs.watch delivers events on this machine; warn loudly if not. */
 async function watcherSelfTest(): Promise<void> {
   const dir = path.join(dataDir, 'selftest');
@@ -379,8 +310,6 @@ async function watcherSelfTest(): Promise<void> {
   }
 }
 
-if (!NO_OPEN && cfg().openBrowser) openBrowser(DEV ? 'http://127.0.0.1:5173/' : url);
-
 function openBrowser(target: string): void {
   const candidates = [
     path.join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
@@ -395,13 +324,42 @@ function openBrowser(target: string): void {
       log.info('main', `opened app window via ${path.basename(exe)}`);
       return;
     }
-    void import('open').then(({ default: open }) => open(target));
+    openWithDefaultApp(target);
   } catch (e) {
     log.warn('main', 'could not open browser automatically', e);
   }
 }
 
-// --- graceful shutdown ------------------------------------------------------------------------------------
+// --- HTTP server + lifecycle -----------------------------------------------------------------------------
+let app: FastifyInstance | null = null;
+
+async function listen(): Promise<void> {
+  const basePort = cfg().port;
+  for (let i = 0; i < 12; i++) {
+    port = basePort + i;
+    try {
+      await app!.listen({ port, host: cfg().host });
+      return;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
+      // Is it another MDSyncView? Then just open it and exit.
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(800) });
+        if (res.ok) {
+          const j = (await res.json()) as { serverId?: string };
+          if (j.serverId) {
+            log.info('main', `MDSyncView already running on port ${port}; opening it`);
+            if (!NO_OPEN) openBrowser(`http://127.0.0.1:${port}/`);
+            process.exit(0);
+          }
+        }
+      } catch { /* not ours */ }
+      log.warn('main', `port ${port} busy, trying next`);
+    }
+  }
+  throw new Error('no free port found');
+}
+
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) { log.warn('main', `${signal} received again, forcing exit`); process.exit(1); }
@@ -414,11 +372,84 @@ async function shutdown(signal: string): Promise<void> {
   watch.close();
   dirty.clear();
   hub.close();
-  try { await app.close(); } catch { /* ignore */ }
+  try { await app?.close(); } catch { /* ignore */ }
   db.close();
   process.exit(0);
 }
+
+async function main(): Promise<void> {
+  app = await buildServer({
+    db,
+    indexer,
+    hub,
+    dev: DEV,
+    clientDir,
+    dataDir,
+    maxContentBytes: () => cfg().maxContentBytes,
+    stats,
+    roots,
+    configView,
+    updateConfig: async (patch) => {
+      const rootsChanged = patch.roots !== undefined;
+      const excludesChanged = patch.excludeNames !== undefined || patch.excludePaths !== undefined;
+      store.update(patch);
+      if (excludesChanged) rebuildExclude();
+      if (rootsChanged || excludesChanged) {
+        if (excludesChanged) {
+          // exclusions affect the watch topology and which files count: re-plan and rescan everything
+          await watch.setRoots([]);
+          effectiveRoots = [];
+        }
+        await applyRoots(excludesChanged);
+      }
+      if (patch.reconcileIntervalMin !== undefined) schedulePeriodic();
+      return configView();
+    },
+    rescan: async (root) => {
+      const targets = root ? effectiveRoots.filter((r) => toKey(r) === toKey(root)) : effectiveRoots;
+      await Promise.all(targets.map((r) => reconcilePath(r, r, 'manual rescan')));
+    },
+    listDrives,
+    isHostAllowed: (host) => !!host && allowedHosts().has(host.toLowerCase()),
+    isOriginAllowed: (origin) => origin !== undefined && allowedOrigins().has(origin),
+    cspHeader: () => [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "media-src 'self' blob:",
+      "font-src 'self' data:",
+      `connect-src 'self' ws://127.0.0.1:${port} ws://localhost:${port}`,
+      "worker-src 'self' blob:",
+      "frame-src 'self'",
+      "object-src 'none'",
+      "base-uri 'none'",
+      "form-action 'none'",
+      "frame-ancestors 'none'",
+    ].join('; '),
+  });
+
+  await listen();
+  hub.attach(app.server);
+  const url = `http://127.0.0.1:${port}/`;
+  log.info('main', `listening on ${url}`);
+  if (!fs.existsSync(path.join(clientDir, 'index.html'))) log.warn('main', `client bundle not found at ${clientDir}; the API works but the UI will not load (run "npm run build")`);
+  void listDrives(); // warm the drive list (PowerShell spawn) so the settings dialog opens instantly
+
+  // Attach watchers first so nothing is missed while the startup reconcile runs.
+  await applyRoots(true);
+  schedulePeriodic();
+  void watcherSelfTest();
+
+  if (!NO_OPEN && cfg().openBrowser) openBrowser(DEV ? 'http://127.0.0.1:5173/' : url);
+}
+
 process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
 process.on('uncaughtException', (e) => { log.error('main', 'uncaught exception', e); });
 process.on('unhandledRejection', (e) => { log.error('main', 'unhandled rejection', e); });
+
+main().catch((e) => {
+  log.error('main', 'fatal startup error', e);
+  process.exit(1);
+});
