@@ -30,9 +30,23 @@ node server/src/index.ts [--no-open] [--port=4820] [--data=<数据目录>] [--ro
 
 `--root` 可重复，用于限定扫描范围；不指定时扫描所有固定磁盘。也可在界面「设置」中修改根目录、排除规则与定期核对间隔。
 
+### 系统托盘常驻
+
+Release 包中的 `MDSyncView.exe` 是托盘宿主程序：双击后没有控制台窗口，程序以图标形式常驻右下角通知区域，并在后台启动 `MDSyncView-server.exe`，服务就绪后自动打开应用窗口。托盘菜单提供：打开界面（双击或左键图标同样有效）、在浏览器中打开、重新扫描全部根目录、打开数据目录、查看服务日志、重启服务、退出。服务异常退出时会自动重启（最多 3 次）并弹出提示；退出时通过 `/api/shutdown` 让服务优雅关闭。服务日志写在 `%LOCALAPPDATA%\MDSyncView\server.log`。
+
+Windows 11 默认把新出现的托盘图标放进溢出区（任务栏右侧的 `^`），把它拖到任务栏即可固定显示。
+
+托盘宿主用 Windows 自带的 .NET Framework C# 编译器构建（`tray/Program.cs`，无需安装 SDK），图标由 `npm run icon` 从代码生成（`assets/icon.ico` 与 PWA 图标）。从源码运行托盘模式：
+
+```bash
+npm run tray
+```
+
+它会编译 `dist/tray/MDSyncView.exe` 并启动，此时服务以 `node server/src/index.ts` 方式运行。
+
 ### 独立 EXE（无需安装 Node）
 
-每次推送到 `main`/`master`，GitHub Actions（`.github/workflows/build-windows.yml`）会在 Windows 上运行类型检查与端到端测试，然后用 Node 官方的单文件可执行方案（SEA）把服务端打包进 `MDSyncView.exe`，连同前端资源压缩为 `MDSyncView-win-x64.zip`，上传为构建产物并发布到 GitHub Releases（标签形如 `v0.1.0-build.12`）。解压后双击 `MDSyncView.exe` 即可，`client` 目录需与 EXE 放在一起。
+每次推送到 `main`/`master`，GitHub Actions（`.github/workflows/build-windows.yml`）会在 Windows 上运行类型检查与端到端测试，然后用 Node 官方的单文件可执行方案（SEA）把服务端打包为 `MDSyncView-server.exe`，编译托盘宿主 `MDSyncView.exe`，连同前端资源压缩为 `MDSyncView-win-x64.zip`，上传为构建产物并发布到 GitHub Releases（标签形如 `v0.1.0-build.12`）。解压后双击 `MDSyncView.exe` 即可，`client` 目录需与两个 EXE 放在一起。
 
 本地生成同样的产物：
 

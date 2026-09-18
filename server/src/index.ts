@@ -427,6 +427,8 @@ async function main(): Promise<void> {
       "form-action 'none'",
       "frame-ancestors 'none'",
     ].join('; '),
+    openUi: () => openBrowser(DEV ? 'http://127.0.0.1:5173/' : `http://127.0.0.1:${port}/`),
+    shutdown: () => void shutdown('API'),
   });
 
   await listen();

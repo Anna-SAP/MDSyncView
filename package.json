@@ -15,7 +15,10 @@
     "start": "node --no-warnings=ExperimentalWarning server/src/index.ts",
     "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit",
     "test": "node --no-warnings=ExperimentalWarning --test server/test/*.test.ts",
-    "build:exe": "node scripts/build-exe.mjs"
+    "build:exe": "node scripts/build-exe.mjs",
+    "icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-icon.ps1",
+    "build:tray": "node scripts/build-tray.mjs",
+    "tray": "node scripts/build-tray.mjs --run"
   },
   "dependencies": {
     "@fastify/static": "^10.1.3",

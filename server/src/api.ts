@@ -30,6 +30,10 @@ export interface AppContext {
   isHostAllowed: (host: string | undefined) => boolean;
   isOriginAllowed: (origin: string | undefined) => boolean;
   cspHeader: () => string;
+  /** Open (or re-open) the UI window with the machine's browser. */
+  openUi: () => void;
+  /** Graceful shutdown; the promise resolves after the response has been sent. */
+  shutdown: () => void;
 }
 
 const MEDIA_EXTS = new Set([
@@ -229,6 +233,18 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
       patch.reconcileIntervalMin = Math.max(0, Math.min(24 * 60, Math.round(body.reconcileIntervalMin)));
     }
     return ctx.updateConfig(patch);
+  });
+
+  // Used by the tray host (and a second launch) to bring the app window up.
+  app.post('/api/open-ui', async () => {
+    ctx.openUi();
+    return { ok: true };
+  });
+
+  // Used by the tray host's "Quit": answer first, then shut down cleanly.
+  app.post('/api/shutdown', async () => {
+    setTimeout(() => ctx.shutdown(), 50);
+    return { ok: true };
   });
 
   app.post('/api/rescan', async (req) => {
